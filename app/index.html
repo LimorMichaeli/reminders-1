@@ -1,0 +1,182 @@
+(function () {
+    'use strict';
+
+    angular
+        .module('app.common')
+        .controller('EditConnectionDialogController', EditConnectionDialogController);
+
+
+    /* @ngInject */
+    function EditConnectionDialogController($mdDialog, model, $q, connectionsService, MONTHS, ENTITY_TYPES) {
+        var vm = this;
+
+        vm.isProcessing = false;
+        vm.ENTITY_TYPES = ENTITY_TYPES;
+        model = model || {};
+
+        vm.model = {
+            currentEntityId: +model.currentEntityId,
+            relatedEntityId: +model.relatedEntityId,
+            currentEntityTypeId: model.currentEntityTypeId,
+            relatedEntityTypeId: model.relatedEntityTypeId,
+            connectionId: +model.connectionId,
+            connectionTypeId: null,
+            properties: [],
+            startDate: null,
+            endDate: null,
+            description: null,
+            entityModel: {},
+            startDateType: null,
+            endDateType: null
+        };
+        vm.propertiesObj = {};
+        var momentNow = moment();
+        vm.years = _.reverse(_.range(1900, momentNow.year() + 6));
+        vm.months = MONTHS;
+        vm.$mdDialog = $mdDialog;
+       
+        vm.startType = startType;
+        vm.endType = endType;
+
+        vm.filterConnectionTypes = filterConnectionTypes;
+        vm.startDateChanged = startDateChanged;
+        vm.endDateChanged = endDateChanged;
+        vm.connectionTypeChanged = connectionTypeChanged;
+        vm.save = save;
+        vm.isValid = isValid;
+        activate();
+
+        ////////////////
+
+        function activate() {
+            vm.isProcessing = true;
+            $q.all([loadConnectionTypes(), vm.model.connectionId ? loadConnectionDetails() : null]).then(
+                function (respArr) {
+                    vm.isProcessing = false;
+                    if (respArr[1]) {
+                        //todo:refactor that
+                        vm.model.connectionTypeId = respArr[1].connectionTypeId;
+                        vm.model.description = respArr[1].description;
+                        vm.model.startDate = moment.utc(respArr[1].connectionStartDate);
+                        if (vm.model.startDate.isValid()) {
+                            vm.model.startDateMonth = vm.model.startDate.month() + 1;
+                            vm.model.startDateYear = vm.model.startDate.year();
+                        }
+                        vm.model.endDate = moment.utc(respArr[1].connectionEndDate);
+                        if (vm.model.endDate.isValid()) {
+                            vm.model.endDateMonth = vm.model.endDate.month() + 1;
+                            vm.model.endDateYear = vm.model.endDate.year();
+                        }
+                        //todo:refactor that
+                        _.each(respArr[1].connectionProperties, function (item) {
+                            vm.propertiesObj[item.propertyTypeId] = item.value;
+                        })
+                    }
+                }
+            );
+        }
+
+        function startType(){
+            if (!vm.model.startDateMonth && !vm.model.startDateYear){
+                vm.model.startDateType= null;
+            }
+            else if(vm.model.startDateYear){
+                if(vm.model.startDateMonth){
+                    vm.model.startDateType = 2;
+                }
+                else vm.model.startDateType = 3;
+            }
+            else vm.model.startDateType = 1;
+            debugger;
+        }
+
+        function endType(date){
+            if (!vm.model.endDateMonth && !vm.model.endDateYear){
+                vm.model.endDateType= null;
+            }
+            else if(vm.model.endDateYear){
+                if(vm.model.endDateMonth){
+                    vm.model.endDateType = 2;
+                }
+                else vm.model.endDateType = 3;
+            }
+            else vm.model.endDateType = 1;
+            debugger;
+        }
+
+        function save() {
+            vm.model.properties = _.toPairs(vm.propertiesObj).map(function (item) {
+                return {connectionPropertyTypeId: item[0], value: item[1]};
+            });
+            vm.isProcessing = true;
+            connectionsService.editConnection(vm.model, ENTITY_TYPES[vm.model.currentEntityTypeId].CODE, ENTITY_TYPES[vm.model.relatedEntityTypeId].CODE).then(
+                function (resp) {
+                    $mdDialog.hide(resp);
+                }
+            ).finally(function () {
+                vm.isProcessing = false;
+            });
+        }
+
+        function startDateChanged() {
+            isValid();
+            startType();
+            if (vm.model.startDateYear) {
+                var startDate = moment.utc(vm.model.startDateYear + '-' + vm.model.startDateMonth || 1, 'YYYY-MM');
+                if (startDate.isValid()) {
+                    vm.model.startDate = startDate;
+                }
+            } else {
+                vm.model.startDate = null;
+            }
+
+        }
+
+        function endDateChanged() {
+            endType();
+            if (vm.model.endDateYear) {
+                var endDate = moment.utc(vm.model.endDateYear + '-' + vm.model.endDateMonth || 1, "YYYY-MM");
+                if (endDate.isValid()) {
+                    vm.model.endDate = endDate
+                }
+            } else {
+                vm.model.endDate = null;
+            }
+        }
+
+        function connectionTypeChanged() {
+            vm.propertiesObj = {};
+            vm.selectedConnectionType = _.find(vm.entityTypeConnections, {connectionTypeId: vm.model.connectionTypeId});
+        }
+
+        function loadConnectionDetails() {
+            return connectionsService.getConnectionDetails(vm.model.connectionId).then(function (resp) {
+                vm.connectionDetails = resp;
+                return resp;
+            });
+        }
+
+        function loadConnectionTypes() {
+            return connectionsService.searchConnectionTypes().then(function (resp) {
+                vm.entityTypeConnections = resp;
+                return resp;
+            });
+        }
+
+        function filterConnectionTypes(item) {
+            return (item.sourceEntityTypeId == vm.model.currentEntityTypeId && item.targetEntityTypeId == vm.model.relatedEntityTypeId) || (item.sourceEntityTypeId == vm.model.relatedEntityTypeId && item.targetEntityTypeId == vm.model.currentEntityTypeId)
+        }
+
+        function isValid() {
+            if (vm.model.endDate && vm.model.startDate) {
+                vm.editConnectionForm.endDateYear.$setValidity("invalidDates", !vm.model.endDate.isBefore(vm.model.startDate))
+            }
+            if(!vm.model.endDate || !vm.model.startDate){
+                vm.editConnectionForm.endDateYear.$setValidity("invalidDates", true);
+            }
+            return vm.editConnectionForm.$valid;
+        }
+    }
+
+})();
+
